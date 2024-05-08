@@ -4,7 +4,7 @@ use teloxide::prelude::*;
 use teloxide::types::{InputFile, ParseMode};
 use teloxide::utils::command::BotCommands;
 
-use crate::util::convert_unknown_image_to_png;
+use crate::util::{convert_unknown_image_to_png, convert_webm_to_gif};
 
 #[derive(Clone, Default, Debug)]
 pub enum State {
@@ -106,12 +106,22 @@ pub async fn handle_export_sticker(
     message: Message,
     dialogue: Dialogue<State, InMemStorage<State>>,
 ) -> anyhow::Result<()> {
+    let waiting_msg = bot
+        .send_message(message.chat.id, "Processing...")
+        .reply_to_message_id(message.id)
+        .send()
+        .await?;
+
     // Check if the message contains a sticker
     let sticker = match message.sticker() {
         Some(sticker) => sticker,
         None => {
             bot.send_message(message.chat.id, "Please send me a sticker.")
                 .reply_to_message_id(message.id)
+                .send()
+                .await?;
+
+            bot.delete_message(message.chat.id, waiting_msg.id)
                 .send()
                 .await?;
 
@@ -141,6 +151,10 @@ pub async fn handle_export_sticker(
                         .send()
                         .await?;
 
+                    bot.delete_message(message.chat.id, waiting_msg.id)
+                        .send()
+                        .await?;
+
                     return Ok(());
                 }
             };
@@ -157,6 +171,10 @@ pub async fn handle_export_sticker(
                                 .send()
                                 .await?;
 
+                            bot.delete_message(message.chat.id, waiting_msg.id)
+                                .send()
+                                .await?;
+
                             return Ok(());
                         }
                     };
@@ -165,6 +183,18 @@ pub async fn handle_export_sticker(
                         message.chat.id,
                         InputFile::memory(data)
                             .file_name(format!("{}.png", sticker.file.unique_id)),
+                    )
+                    .reply_to_message_id(message.id)
+                    .send()
+                    .await?;
+                }
+                "video" => {
+                    let data = convert_webm_to_gif(&file_data).await?;
+
+                    bot.send_document(
+                        message.chat.id,
+                        InputFile::memory(data)
+                            .file_name(format!("{}.gif", sticker.file.unique_id)),
                     )
                     .reply_to_message_id(message.id)
                     .send()
@@ -194,6 +224,10 @@ pub async fn handle_export_sticker(
             .await?;
         }
     }
+
+    bot.delete_message(message.chat.id, waiting_msg.id)
+        .send()
+        .await?;
 
     Ok(())
 }
