@@ -25,3 +25,6 @@ teloxide = { version = "0.12", features = ["macros"] }
 dptree = "0.3"
 reqwest = "0.12"
 anyhow = "1.0"
+image = "0.25"
+infer = "0.15"
+tempfile = "3"
