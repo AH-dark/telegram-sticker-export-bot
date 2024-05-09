@@ -1,6 +1,8 @@
 use std::io::Write;
 
 use anyhow::Context;
+use futures::stream::FuturesUnordered;
+use futures::StreamExt;
 use teloxide::dispatching::dialogue::InMemStorage;
 use teloxide::prelude::*;
 use teloxide::types::{InputFile, ParseMode};
@@ -159,14 +161,10 @@ pub async fn handle_export_sticker(
 
     match dialogue.get_or_default().await {
         Ok(State::SingleExport) => {
-            match export_single_sticker(&bot, &sticker).await {
+            match export_single_sticker(bot.clone(), sticker).await {
                 Ok((filename, data)) => {
                     bot.send_document(message.chat.id, InputFile::memory(data).file_name(filename))
                         .reply_to_message_id(message.id)
-                        .send()
-                        .await?;
-
-                    bot.delete_message(message.chat.id, waiting_msg.id)
                         .send()
                         .await?;
                 }
@@ -209,39 +207,54 @@ pub async fn handle_export_sticker(
                 .context("Failed to get sticker set")?;
 
             // Get the stickers in the sticker pack
-            let mut sticker_files = Vec::new();
+            let mut futures = FuturesUnordered::new();
             let stickers_len = sticker_set.stickers.len();
-            for sticker in sticker_set.stickers {
-                let (filename, data) = match export_single_sticker(&bot, &sticker).await {
-                    Ok((filename, data)) => (filename, data),
-                    Err(e) => {
-                        log::error!("Failed to export sticker {}: {}", sticker.file.unique_id, e);
 
+            for sticker in sticker_set.stickers {
+                let bot = bot.clone();
+
+                futures.push(async move {
+                    match export_single_sticker(bot, &sticker).await {
+                        Ok((filename, data)) => Ok((filename, data, sticker.file.unique_id)),
+                        Err(e) => Err((e, sticker.file.unique_id)),
+                    }
+                });
+            }
+
+            let mut sticker_files = Vec::new();
+            let mut errors = Vec::new();
+            let mut downloaded_len = 0;
+
+            while let Some(result) = futures.next().await {
+                match result {
+                    Ok((filename, data, _)) => {
+                        sticker_files.push((filename, data));
+                        downloaded_len += 1;
+                        // Update progress every 5 stickers
+                        if downloaded_len % 5 == 0 {
+                            bot.edit_message_text(
+                                message.chat.id,
+                                waiting_msg.id,
+                                format!("Downloading... {}/{}", downloaded_len, stickers_len),
+                            )
+                            .send()
+                            .await?;
+                        }
+                    }
+                    Err((e, unique_id)) => {
+                        log::error!("Failed to export sticker {}: {}", unique_id, e);
                         bot.send_message(message.chat.id, e.to_string())
                             .reply_to_message_id(message.id)
                             .send()
                             .await?;
-
                         bot.delete_message(message.chat.id, waiting_msg.id)
                             .send()
                             .await?;
-
-                        return Err(e);
+                        errors.push(e);
+                        if !errors.is_empty() {
+                            return Err(errors.remove(0));
+                        }
                     }
-                };
-
-                sticker_files.push((filename, data));
-
-                // update status
-                let downloaded_len = sticker_files.len();
-                if downloaded_len % 5 == 0 {
-                    bot.edit_message_text(
-                        message.chat.id,
-                        waiting_msg.id,
-                        format!("Downloading... {}/{}", downloaded_len, &stickers_len),
-                    )
-                    .send()
-                    .await?;
                 }
             }
 
@@ -264,7 +277,7 @@ pub async fn handle_export_sticker(
                     item_size += 1;
 
                     // update status
-                    if item_size % 5 == 0 {
+                    if item_size % 5 == 0 || item_size == stickers_len {
                         bot.edit_message_text(
                             message.chat.id,
                             waiting_msg.id,

@@ -2502,6 +2502,7 @@ dependencies = [
  "anyhow",
  "dotenv",
  "dptree",
+ "futures",
  "image",
  "infer",
  "log",

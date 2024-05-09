@@ -12,6 +12,7 @@ log = "0.4"
 pretty_env_logger = "0.5"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 dotenv = "0.15"
+futures = "0.3"
 
 opentelemetry = "0.22"
 opentelemetry-otlp = { version = "0.15", features = ["http-proto", "grpc-tonic", "reqwest"] }

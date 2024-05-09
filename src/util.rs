@@ -19,7 +19,7 @@ pub fn env_or_default(key: &str, default: &str) -> String {
 /// Export a single sticker.
 #[tracing::instrument]
 pub async fn export_single_sticker(
-    bot: &Bot,
+    bot: Bot,
     sticker: &Sticker,
 ) -> anyhow::Result<(String, Vec<u8>)> {
     // download the sticker file
