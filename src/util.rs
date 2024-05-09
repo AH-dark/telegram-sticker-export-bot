@@ -4,12 +4,63 @@ use std::process::Command;
 use anyhow::Context;
 use image::ImageFormat;
 use image::io::Reader as ImageReader;
+use infer::Infer;
+use teloxide::Bot;
+use teloxide::prelude::{Request, Requester};
+use teloxide::types::Sticker;
 use tokio::fs;
 
 /// Get the value of an environment variable or a default value.
 #[tracing::instrument]
 pub fn env_or_default(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
+}
+
+/// Export a single sticker.
+#[tracing::instrument]
+pub async fn export_single_sticker(
+    bot: &Bot,
+    sticker: &Sticker,
+) -> anyhow::Result<(String, Vec<u8>)> {
+    // download the sticker file
+    let file = bot.get_file(sticker.file.id.clone()).send().await?;
+    let file_url = format!(
+        "{}/file/bot{}/{}",
+        bot.api_url().as_str(),
+        bot.token(),
+        file.path
+    );
+    let file_data = reqwest::get(file_url).await?.bytes().await?;
+
+    // infer the file type
+    let infer = Infer::new();
+    let kind = match infer.get(&file_data) {
+        Some(t) => t,
+        None => {
+            return Err(anyhow::anyhow!("Failed to infer file type"));
+        }
+    };
+
+    // handle the file type
+    let mime = kind.mime_type();
+    match mime.split('/').next().unwrap_or_default() {
+        "image" => {
+            let data = match convert_unknown_image_to_png(&file_data) {
+                Ok(data) => data,
+                Err(e) => {
+                    return Err(anyhow::anyhow!("Failed to convert image to PNG: {}", e));
+                }
+            };
+
+            Ok((format!("{}.png", sticker.file.unique_id), data))
+        }
+        "video" => {
+            let data = convert_webm_to_gif(&file_data).await?;
+
+            Ok((format!("{}.gif", sticker.file.unique_id), data))
+        }
+        _ => Err(anyhow::anyhow!("Unsupported file type")),
+    }
 }
 
 /// Convert an unknown image to PNG format.

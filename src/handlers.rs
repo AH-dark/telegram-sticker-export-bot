@@ -1,10 +1,13 @@
-use infer::Infer;
+use std::io::Write;
+
+use anyhow::Context;
 use teloxide::dispatching::dialogue::InMemStorage;
 use teloxide::prelude::*;
 use teloxide::types::{InputFile, ParseMode};
 use teloxide::utils::command::BotCommands;
+use zip::ZipWriter;
 
-use crate::util::{convert_unknown_image_to_png, convert_webm_to_gif};
+use crate::util::export_single_sticker;
 
 #[derive(Clone, Default, Debug)]
 pub enum State {
@@ -99,6 +102,31 @@ pub async fn handle_single_export(
     Ok(())
 }
 
+/// Handle the `/pack` command, which allows the user to export a single sticker.
+#[tracing::instrument]
+pub async fn handle_pack_export(
+    bot: Bot,
+    message: Message,
+    dialogue: Dialogue<State, InMemStorage<State>>,
+) -> anyhow::Result<()> {
+    // Update the dialogue state
+    dialogue
+        .update(State::PackExport)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to update state: {}", e))?;
+
+    // Reply to the user
+    bot.send_message(
+        message.chat.id,
+        "Pack export mode, please send me stickers from the sticker pack you want to export.",
+    )
+    .reply_to_message_id(message.id)
+    .send()
+    .await?;
+
+    Ok(())
+}
+
 /// Handle the `/single` and `/pack` commands, which allow the user to export a single sticker or an entire sticker pack.
 #[tracing::instrument]
 pub async fn handle_export_sticker(
@@ -131,22 +159,19 @@ pub async fn handle_export_sticker(
 
     match dialogue.get_or_default().await {
         Ok(State::SingleExport) => {
-            // download the sticker file
-            let file = bot.get_file(sticker.file.id.clone()).send().await?;
-            let file_url = format!(
-                "{}/file/bot{}/{}",
-                bot.api_url().as_str(),
-                bot.token(),
-                file.path
-            );
-            let file_data = reqwest::get(file_url).await?.bytes().await?;
+            match export_single_sticker(&bot, &sticker).await {
+                Ok((filename, data)) => {
+                    bot.send_document(message.chat.id, InputFile::memory(data).file_name(filename))
+                        .reply_to_message_id(message.id)
+                        .send()
+                        .await?;
 
-            // infer the file type
-            let infer = Infer::new();
-            let kind = match infer.get(&file_data) {
-                Some(t) => t,
-                None => {
-                    bot.send_message(message.chat.id, "Failed to infer the file type.")
+                    bot.delete_message(message.chat.id, waiting_msg.id)
+                        .send()
+                        .await?;
+                }
+                Err(e) => {
+                    bot.send_message(message.chat.id, e.to_string())
                         .reply_to_message_id(message.id)
                         .send()
                         .await?;
@@ -155,61 +180,116 @@ pub async fn handle_export_sticker(
                         .send()
                         .await?;
 
-                    return Ok(());
+                    return Err(e);
                 }
             };
-
-            // handle the file type
-            let mime = kind.mime_type();
-            match mime.split('/').next().unwrap_or_default() {
-                "image" => {
-                    let data = match convert_unknown_image_to_png(&file_data) {
-                        Ok(data) => data,
-                        Err(e) => {
-                            bot.send_message(message.chat.id, e.to_string())
-                                .reply_to_message_id(message.id)
-                                .send()
-                                .await?;
-
-                            bot.delete_message(message.chat.id, waiting_msg.id)
-                                .send()
-                                .await?;
-
-                            return Ok(());
-                        }
-                    };
-
-                    bot.send_document(
-                        message.chat.id,
-                        InputFile::memory(data)
-                            .file_name(format!("{}.png", sticker.file.unique_id)),
-                    )
-                    .reply_to_message_id(message.id)
-                    .send()
-                    .await?;
-                }
-                "video" => {
-                    let data = convert_webm_to_gif(&file_data).await?;
-
-                    bot.send_document(
-                        message.chat.id,
-                        InputFile::memory(data)
-                            .file_name(format!("{}.gif", sticker.file.unique_id)),
-                    )
-                    .reply_to_message_id(message.id)
-                    .send()
-                    .await?;
-                }
-                _ => {
-                    bot.send_message(message.chat.id, format!("Unsupported file type: {}", mime))
-                        .reply_to_message_id(message.id)
-                        .send()
-                        .await?;
-                }
-            }
         }
         Ok(State::PackExport) => {
-            todo!("Export sticker pack")
+            // check if the sticker is from a sticker pack
+            if sticker.set_name.is_none() {
+                bot.send_message(
+                    message.chat.id,
+                    "Please send me a sticker from a sticker pack.",
+                )
+                .reply_to_message_id(message.id)
+                .send()
+                .await?;
+
+                bot.delete_message(message.chat.id, waiting_msg.id)
+                    .send()
+                    .await?;
+
+                return Err(anyhow::anyhow!("Invalid sticker pack"));
+            }
+
+            // Get the sticker set
+            let sticker_set = bot
+                .get_sticker_set(sticker.set_name.as_ref().unwrap())
+                .await
+                .context("Failed to get sticker set")?;
+
+            // Get the stickers in the sticker pack
+            let mut sticker_files = Vec::new();
+            let stickers_len = sticker_set.stickers.len();
+            for sticker in sticker_set.stickers {
+                let (filename, data) = match export_single_sticker(&bot, &sticker).await {
+                    Ok((filename, data)) => (filename, data),
+                    Err(e) => {
+                        log::error!("Failed to export sticker {}: {}", sticker.file.unique_id, e);
+
+                        bot.send_message(message.chat.id, e.to_string())
+                            .reply_to_message_id(message.id)
+                            .send()
+                            .await?;
+
+                        bot.delete_message(message.chat.id, waiting_msg.id)
+                            .send()
+                            .await?;
+
+                        return Err(e);
+                    }
+                };
+
+                sticker_files.push((filename, data));
+
+                // update status
+                let downloaded_len = sticker_files.len();
+                if downloaded_len % 5 == 0 {
+                    bot.edit_message_text(
+                        message.chat.id,
+                        waiting_msg.id,
+                        format!("Downloading... {}/{}", downloaded_len, &stickers_len),
+                    )
+                    .send()
+                    .await?;
+                }
+            }
+
+            // Create a zip archive containing all the stickers
+            let mut buffer = Vec::new();
+            {
+                let mut zip = ZipWriter::new(std::io::Cursor::new(&mut buffer));
+                let mut item_size = 0;
+                let options: zip::write::FileOptions<zip::write::ExtendedFileOptions> =
+                    zip::write::FileOptions::default()
+                        .compression_method(zip::CompressionMethod::Deflated)
+                        .unix_permissions(0o755);
+
+                for (filename, data) in sticker_files {
+                    zip.start_file(filename, options.clone())
+                        .context("Failed to start file in zip archive")?;
+                    zip.write_all(&data)
+                        .context("Failed to write file to zip archive")?;
+
+                    item_size += 1;
+
+                    // update status
+                    if item_size % 5 == 0 {
+                        bot.edit_message_text(
+                            message.chat.id,
+                            waiting_msg.id,
+                            format!("Compressing... {}/{}", &item_size, &stickers_len),
+                        )
+                        .send()
+                        .await?;
+                    }
+                }
+
+                zip.finish().context("Failed to finish zip archive")?;
+            }
+
+            // update status
+            bot.edit_message_text(message.chat.id, waiting_msg.id, "Uploading zip archive...")
+                .send()
+                .await?;
+
+            bot.send_document(
+                message.chat.id,
+                InputFile::memory(buffer).file_name(format!("stickers-{}.zip", &sticker_set.name)),
+            )
+            .reply_to_message_id(message.id)
+            .send()
+            .await?;
         }
         Ok(_) => {
             unreachable!("Invalid state")

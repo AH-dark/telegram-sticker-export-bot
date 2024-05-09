@@ -32,7 +32,8 @@ async fn main() {
                     .branch(dptree::case![BasicCommand::Start].endpoint(handle_start))
                     .branch(
                         dptree::case![BasicCommand::SingleExport].endpoint(handle_single_export),
-                    ),
+                    )
+                    .branch(dptree::case![BasicCommand::PackExport].endpoint(handle_pack_export)),
             )
             .branch(
                 dptree::case![State::SingleExport]
