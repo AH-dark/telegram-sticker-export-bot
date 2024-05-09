@@ -25,7 +25,7 @@ pub async fn export_single_sticker(
     // download the sticker file
     let file = bot.get_file(sticker.file.id.clone()).send().await?;
     let file_url = format!(
-        "{}/file/bot{}/{}",
+        "{}file/bot{}/{}",
         bot.api_url().as_str(),
         bot.token(),
         file.path

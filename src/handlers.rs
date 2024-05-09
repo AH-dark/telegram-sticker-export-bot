@@ -212,26 +212,20 @@ pub async fn handle_export_sticker(
 
             for sticker in sticker_set.stickers {
                 let bot = bot.clone();
-
-                futures.push(async move {
-                    match export_single_sticker(bot, &sticker).await {
-                        Ok((filename, data)) => Ok((filename, data, sticker.file.unique_id)),
-                        Err(e) => Err((e, sticker.file.unique_id)),
-                    }
-                });
+                futures.push(async move { export_single_sticker(bot, &sticker).await });
             }
 
             let mut sticker_files = Vec::new();
-            let mut errors = Vec::new();
             let mut downloaded_len = 0;
 
             while let Some(result) = futures.next().await {
                 match result {
-                    Ok((filename, data, _)) => {
+                    Ok((filename, data)) => {
                         sticker_files.push((filename, data));
                         downloaded_len += 1;
+
                         // Update progress every 5 stickers
-                        if downloaded_len % 5 == 0 {
+                        if downloaded_len % 5 == 0 || downloaded_len == stickers_len {
                             bot.edit_message_text(
                                 message.chat.id,
                                 waiting_msg.id,
@@ -241,19 +235,19 @@ pub async fn handle_export_sticker(
                             .await?;
                         }
                     }
-                    Err((e, unique_id)) => {
-                        log::error!("Failed to export sticker {}: {}", unique_id, e);
+                    Err(e) => {
+                        log::error!("Failed to export sticker: {}", e);
+
                         bot.send_message(message.chat.id, e.to_string())
                             .reply_to_message_id(message.id)
                             .send()
                             .await?;
+
                         bot.delete_message(message.chat.id, waiting_msg.id)
                             .send()
                             .await?;
-                        errors.push(e);
-                        if !errors.is_empty() {
-                            return Err(errors.remove(0));
-                        }
+
+                        return Err(e);
                     }
                 }
             }
@@ -262,29 +256,28 @@ pub async fn handle_export_sticker(
             let mut buffer = Vec::new();
             {
                 let mut zip = ZipWriter::new(std::io::Cursor::new(&mut buffer));
-                let mut item_size = 0;
                 let options: zip::write::FileOptions<zip::write::ExtendedFileOptions> =
                     zip::write::FileOptions::default()
                         .compression_method(zip::CompressionMethod::Deflated)
                         .unix_permissions(0o755);
 
-                for (filename, data) in sticker_files {
-                    zip.start_file(filename, options.clone())
+                for (i, (filename, data)) in sticker_files.iter().enumerate() {
+                    zip.start_file(filename.to_owned(), options.clone())
                         .context("Failed to start file in zip archive")?;
                     zip.write_all(&data)
                         .context("Failed to write file to zip archive")?;
 
-                    item_size += 1;
-
                     // update status
-                    if item_size % 5 == 0 || item_size == stickers_len {
+                    if i % 5 == 0 || i == stickers_len {
                         bot.edit_message_text(
                             message.chat.id,
                             waiting_msg.id,
-                            format!("Compressing... {}/{}", &item_size, &stickers_len),
+                            format!("Compressing... {}/{}", &i, &stickers_len),
                         )
                         .send()
-                        .await?;
+                        .await
+                        .context("Failed to update status")
+                        .ok();
                     }
                 }
 
