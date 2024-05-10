@@ -17,12 +17,12 @@ pub fn init_resource() -> Resource {
     Resource::new(vec![
         KeyValue::new(
             opentelemetry_semantic_conventions::resource::SERVICE_NAME,
-            "call-the-police-bot",
+            "sticker-export-bot",
         ),
         KeyValue::new(
             opentelemetry_semantic_conventions::resource::SERVICE_VERSION,
             env!("CARGO_PKG_VERSION"),
         ),
     ])
-        .merge(detector_resources)
+    .merge(detector_resources)
 }
