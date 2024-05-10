@@ -24,41 +24,40 @@ pub async fn export_single_sticker(
     sticker: &Sticker,
 ) -> anyhow::Result<(String, Vec<u8>)> {
     // download the sticker file
-    let file = bot.get_file(sticker.file.id.clone()).send().await?;
-    let mut file_data = Vec::new();
-    // adapted to the local api server
-    if file.path.starts_with('/') {
-        file_data = fs::read(&file.path).await.context("Failed to read file")?;
+    let file = bot
+        .get_file(sticker.file.id.clone())
+        .send()
+        .await
+        .context("Failed to get file info")?;
+
+    let file_data = if file.path.starts_with('/') {
+        // adapted to the local api server
+        fs::read(&file.path).await.context("Failed to read file")?
     } else {
-        bot.download_file(&file.path, &mut file_data)
+        let mut file_data = Vec::new();
+        bot.download_file(&file.path, &mut Cursor::new(&mut file_data))
             .await
             .context("Failed to download file")?;
-    }
+        file_data
+    };
 
     // infer the file type
     let infer = Infer::new();
-    let kind = match infer.get(&file_data) {
-        Some(t) => t,
-        None => {
-            return Err(anyhow::anyhow!("Failed to infer file type"));
-        }
-    };
+    let kind = infer.get(&file_data).context("Failed to infer file type")?;
 
     // handle the file type
     let mime = kind.mime_type();
     match mime.split('/').next().unwrap_or_default() {
         "image" => {
-            let data = match convert_unknown_image_to_png(&file_data) {
-                Ok(data) => data,
-                Err(e) => {
-                    return Err(anyhow::anyhow!("Failed to convert image to PNG: {}", e));
-                }
-            };
+            let data =
+                convert_unknown_image_to_png(&file_data).context("Failed to convert image")?;
 
             Ok((format!("{}.png", sticker.file.unique_id), data))
         }
         "video" => {
-            let data = convert_webm_to_gif(&file_data).await?;
+            let data = convert_webm_to_gif(&file_data)
+                .await
+                .context("Failed to convert video")?;
 
             Ok((format!("{}.gif", sticker.file.unique_id), data))
         }
