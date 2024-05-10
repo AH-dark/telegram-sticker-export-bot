@@ -6,6 +6,7 @@ use image::ImageFormat;
 use image::io::Reader as ImageReader;
 use infer::Infer;
 use teloxide::Bot;
+use teloxide::net::Download;
 use teloxide::prelude::{Request, Requester};
 use teloxide::types::Sticker;
 use tokio::fs;
@@ -24,13 +25,8 @@ pub async fn export_single_sticker(
 ) -> anyhow::Result<(String, Vec<u8>)> {
     // download the sticker file
     let file = bot.get_file(sticker.file.id.clone()).send().await?;
-    let file_url = format!(
-        "{}file/bot{}/{}",
-        bot.api_url().as_str(),
-        bot.token(),
-        file.path
-    );
-    let file_data = reqwest::get(file_url).await?.bytes().await?;
+    let mut file_data = Vec::new();
+    bot.download_file(&file.path, &mut file_data).await?;
 
     // infer the file type
     let infer = Infer::new();
