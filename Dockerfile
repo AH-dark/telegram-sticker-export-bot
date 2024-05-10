@@ -11,8 +11,10 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 FROM debian:bookworm-slim as runner
 WORKDIR /app
 
+RUN sudo add-apt-repository ppa:jonathonf/ffmpeg-5
+
 RUN apt update
-RUN apt install -y openssl libssl-dev ca-certificates
+RUN apt install -y openssl libssl-dev ca-certificates ffmpeg
 RUN rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /usr/src/sticker-export-bot/target/release/sticker-export-bot /app/entry
