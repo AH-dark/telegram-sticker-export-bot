@@ -11,7 +11,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 FROM debian:bookworm-slim as runner
 WORKDIR /app
 
-RUN sudo add-apt-repository ppa:jonathonf/ffmpeg-5
+RUN add-apt-repository ppa:jonathonf/ffmpeg-5
 
 RUN apt update
 RUN apt install -y openssl libssl-dev ca-certificates ffmpeg
