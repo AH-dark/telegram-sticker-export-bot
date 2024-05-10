@@ -11,6 +11,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 FROM debian:bookworm-slim as runner
 WORKDIR /app
 
+RUN apt update && \
+    apt install software-properties-common
+
 RUN add-apt-repository ppa:jonathonf/ffmpeg-5
 
 RUN apt update
