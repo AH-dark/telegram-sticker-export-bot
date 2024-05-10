@@ -17,7 +17,6 @@ COPY --from=builder /usr/src/sticker-export-bot/target/release/sticker-export-bo
 
 RUN chmod +x /app/entry
 
-RUN useradd -m appuser
-USER appuser
+USER root
 
 ENTRYPOINT ["/app/entry"]
