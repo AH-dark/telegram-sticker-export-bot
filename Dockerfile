@@ -1,9 +1,11 @@
-FROM rust:1 as builder
+FROM rust:1.78-bookworm as builder
 WORKDIR /usr/src/sticker-export-bot
 
 RUN rustup default nightly
 
 COPY . .
+
+RUN apt update -y && apt install -y cmake
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo build --release
@@ -11,12 +13,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 FROM debian:bookworm-slim as runner
 WORKDIR /app
 
-RUN apt update && \
-    apt install software-properties-common
-
-RUN add-apt-repository ppa:jonathonf/ffmpeg-5
-
-RUN apt update
+RUN apt update -y
 RUN apt install -y openssl libssl-dev ca-certificates ffmpeg
 RUN rm -rf /var/lib/apt/lists/*
 
