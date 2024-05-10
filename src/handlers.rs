@@ -1,4 +1,5 @@
 use std::io::Write;
+use std::sync::Arc;
 
 use anyhow::Context;
 use futures::stream::FuturesUnordered;
@@ -9,6 +10,7 @@ use teloxide::types::{InputFile, ParseMode};
 use teloxide::utils::command::BotCommands;
 use zip::ZipWriter;
 
+use crate::limiter;
 use crate::util::export_single_sticker;
 
 #[derive(Clone, Default, Debug)]
@@ -135,7 +137,18 @@ pub async fn handle_export_sticker(
     bot: Bot,
     message: Message,
     dialogue: Dialogue<State, InMemStorage<State>>,
+    rate_limiter: Arc<limiter::Limiter<i64>>,
 ) -> anyhow::Result<()> {
+    // Check the rate limit
+    if !rate_limiter.check(message.chat.id.0) {
+        bot.send_message(message.chat.id, "Rate limit exceeded.")
+            .reply_to_message_id(message.id)
+            .send()
+            .await?;
+
+        return Err(anyhow::anyhow!("Rate limit exceeded"));
+    }
+
     let waiting_msg = bot
         .send_message(message.chat.id, "Processing...")
         .reply_to_message_id(message.id)

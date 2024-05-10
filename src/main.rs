@@ -1,10 +1,16 @@
+use std::sync::Arc;
+
+use governor::{clock, Quota, RateLimiter};
+use governor::state::keyed::{DashMapStateStore, DefaultKeyedStateStore};
 use teloxide::dispatching::dialogue::InMemStorage;
 use teloxide::prelude::*;
 
 use crate::handlers::*;
+use crate::limiter::Limiter;
 use crate::util::env_or_default;
 
 pub(crate) mod handlers;
+pub(crate) mod limiter;
 pub(crate) mod observability;
 pub(crate) mod util;
 
@@ -23,45 +29,66 @@ async fn main() {
         .unwrap(),
     );
 
-    let handler = dptree::entry().branch(
-        Update::filter_message()
-            .enter_dialogue::<Message, InMemStorage<State>, State>()
-            .filter(|message: Message| message.chat.is_private()) // only handle private messages
-            .branch(
-                dptree::case![State::Start]
-                    .filter_command::<BasicCommand>()
-                    .branch(dptree::case![BasicCommand::Start].endpoint(handle_start))
-                    .branch(
-                        dptree::case![BasicCommand::SingleExport].endpoint(handle_single_export),
-                    )
-                    .branch(dptree::case![BasicCommand::PackExport].endpoint(handle_pack_export)),
-            )
-            .branch(
-                dptree::case![State::SingleExport]
-                    .filter(|message: Message| message.sticker().is_some())
-                    .endpoint(handle_export_sticker),
-            )
-            .branch(
-                dptree::case![State::PackExport]
-                    .filter(|message: Message| message.sticker().is_some())
-                    .endpoint(handle_export_sticker),
-            )
-            .branch(
-                dptree::entry()
-                    .filter(|message: Message| {
-                        message
-                            .text()
-                            .map(|text| text == "/cancel")
-                            .unwrap_or(false)
-                    })
-                    .endpoint(handle_cancel),
-            ),
+    let clock = clock::DefaultClock::default();
+    let rate_limiter: Arc<Limiter<i64>> = Limiter::new(
+        Quota::per_minute(
+            std::env::var("RATE_LIMIT")
+                .unwrap_or("20".to_string())
+                .parse()
+                .unwrap(),
+        )
+        .allow_burst(
+            std::env::var("RATE_LIMIT_BURST")
+                .unwrap_or("5".to_string())
+                .parse()
+                .unwrap(),
+        ),
+        &clock,
     );
 
-    Dispatcher::builder(bot, handler)
-        .distribution_function(|_| None::<std::convert::Infallible>)
-        .dependencies(dptree::deps![InMemStorage::<State>::new()])
-        .build()
-        .dispatch()
-        .await;
+    Dispatcher::builder(
+        bot,
+        dptree::entry().branch(
+            Update::filter_message()
+                .enter_dialogue::<Message, InMemStorage<State>, State>()
+                .filter(|message: Message| message.chat.is_private()) // only handle private messages
+                .branch(
+                    dptree::case![State::Start]
+                        .filter_command::<BasicCommand>()
+                        .branch(dptree::case![BasicCommand::Start].endpoint(handle_start))
+                        .branch(
+                            dptree::case![BasicCommand::SingleExport]
+                                .endpoint(handle_single_export),
+                        )
+                        .branch(
+                            dptree::case![BasicCommand::PackExport].endpoint(handle_pack_export),
+                        ),
+                )
+                .branch(
+                    dptree::case![State::SingleExport]
+                        .filter(|message: Message| message.sticker().is_some())
+                        .endpoint(handle_export_sticker),
+                )
+                .branch(
+                    dptree::case![State::PackExport]
+                        .filter(|message: Message| message.sticker().is_some())
+                        .endpoint(handle_export_sticker),
+                )
+                .branch(
+                    dptree::entry()
+                        .filter(|message: Message| {
+                            message
+                                .text()
+                                .map(|text| text == "/cancel")
+                                .unwrap_or(false)
+                        })
+                        .endpoint(handle_cancel),
+                ),
+        ),
+    )
+    .distribution_function(|_| None::<std::convert::Infallible>)
+    .dependencies(dptree::deps![InMemStorage::<State>::new(), rate_limiter])
+    .build()
+    .dispatch()
+    .await;
 }
