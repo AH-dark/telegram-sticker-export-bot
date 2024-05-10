@@ -26,7 +26,14 @@ pub async fn export_single_sticker(
     // download the sticker file
     let file = bot.get_file(sticker.file.id.clone()).send().await?;
     let mut file_data = Vec::new();
-    bot.download_file(&file.path, &mut file_data).await?;
+    // adapted to the local api server
+    if file.path.starts_with('/') {
+        file_data = fs::read(&file.path).await.context("Failed to read file")?;
+    } else {
+        bot.download_file(&file.path, &mut file_data)
+            .await
+            .context("Failed to download file")?;
+    }
 
     // infer the file type
     let infer = Infer::new();
