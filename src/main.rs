@@ -26,6 +26,7 @@ async fn main() {
     let handler = dptree::entry().branch(
         Update::filter_message()
             .enter_dialogue::<Message, InMemStorage<State>, State>()
+            .filter(|message: &Message| message.chat.is_private()) // only handle private messages
             .branch(
                 dptree::case![State::Start]
                     .filter_command::<BasicCommand>()
