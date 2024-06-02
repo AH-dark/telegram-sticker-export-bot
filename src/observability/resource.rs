@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use opentelemetry::KeyValue;
-use opentelemetry_sdk::resource::{OsResourceDetector, TelemetryResourceDetector};
+use opentelemetry_sdk::resource::{EnvResourceDetector, TelemetryResourceDetector};
 use opentelemetry_sdk::Resource;
 
 /// Initialize the open-telemetry resource.
@@ -9,7 +9,7 @@ pub fn init_resource() -> Resource {
     let detector_resources = Box::new(Resource::from_detectors(
         Duration::from_secs(10),
         vec![
-            Box::new(OsResourceDetector),
+            Box::new(EnvResourceDetector::new()),
             Box::new(TelemetryResourceDetector),
         ],
     ));

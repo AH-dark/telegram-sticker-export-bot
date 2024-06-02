@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
-use governor::{clock, Quota, RateLimiter};
-use governor::state::keyed::{DashMapStateStore, DefaultKeyedStateStore};
+use governor::{clock, Quota};
 use teloxide::dispatching::dialogue::InMemStorage;
 use teloxide::prelude::*;
 
