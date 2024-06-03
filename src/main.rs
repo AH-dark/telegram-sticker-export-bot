@@ -64,8 +64,26 @@ async fn main() {
                             dptree::case![BasicCommand::PackExport].endpoint(handle_pack_export),
                         ),
                 )
-                .branch(dptree::case![State::SingleExport].endpoint(handle_export_sticker))
-                .branch(dptree::case![State::PackExport].endpoint(handle_export_sticker))
+                .branch(
+                    dptree::case![State::SingleExport]
+                        .filter(|message: Message| {
+                            message
+                                .text()
+                                .map(|text| text != "/cancel")
+                                .unwrap_or(false)
+                        })
+                        .endpoint(handle_export_sticker),
+                )
+                .branch(
+                    dptree::case![State::PackExport]
+                        .filter(|message: Message| {
+                            message
+                                .text()
+                                .map(|text| text != "/cancel")
+                                .unwrap_or(false)
+                        })
+                        .endpoint(handle_export_sticker),
+                )
                 .branch(
                     dptree::entry()
                         .filter(|message: Message| {
