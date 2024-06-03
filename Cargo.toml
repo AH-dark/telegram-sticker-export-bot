@@ -4,7 +4,7 @@ version = "1.1.0"
 edition = "2021"
 repository = "https://github.com/AH-dark/telegram-sticker-export-bot.git"
 description = "Telegram bot for exporting stickers from sticker packs"
-license = "AGPL-3.0 license"
+license = "AGPL-3.0"
 authors = [
     "AH-dark <ahdark0428@gmail.com>"
 ]
