@@ -26,6 +26,11 @@ pub enum State {
 pub enum BasicCommand {
     #[command(description = "Display a brief introduction to the bot")]
     Start,
+    #[command(
+        rename = "help",
+        description = "Display command list and usage information"
+    )]
+    Help,
     #[command(rename = "single", description = "Start single sticker export mode")]
     SingleExport,
     #[command(rename = "pack", description = "Start pack export mode")]
@@ -52,6 +57,33 @@ pub async fn handle_start(bot: Bot, msg: Message) -> anyhow::Result<()> {
         .parse_mode(ParseMode::Html)
         .send()
         .await?;
+
+    Ok(())
+}
+
+/// Handle the `/help` command, which provides the user with a list of available commands and their descriptions.
+#[tracing::instrument]
+pub async fn handle_help(bot: Bot, msg: Message) -> anyhow::Result<()> {
+    bot.send_message(
+        msg.chat.id,
+        r#"
+        <b>Available commands:</b>
+        
+        /start - Display a brief introduction to the bot
+        /help - Display command list and usage information
+        /single - Start single sticker export mode
+        /pack - Start pack export mode
+        /cancel - Cancel the current operation
+        "#
+        .trim()
+        .split('\n')
+        .map(|s| s.trim())
+        .collect::<Vec<_>>()
+        .join("\n"),
+    )
+    .parse_mode(ParseMode::Html)
+    .send()
+    .await?;
 
     Ok(())
 }
@@ -149,28 +181,35 @@ pub async fn handle_export_sticker(
         return Err(anyhow::anyhow!("Rate limit exceeded"));
     }
 
+    // Check if the message contains a sticker
+    let sticker = match message.sticker() {
+        Some(sticker) => sticker,
+        None => {
+            bot.send_message(
+                message.chat.id,
+                r#"
+            You need to send me a sticker to export. Please send me a sticker and try again.
+            If you want to quit the current operation, you can use the /cancel command.
+            "#
+                .trim()
+                .split('\n')
+                .map(|s| s.trim())
+                .collect::<Vec<_>>()
+                .join("\n"),
+            )
+            .reply_to_message_id(message.id)
+            .send()
+            .await?;
+
+            return Ok(());
+        }
+    };
+
     let waiting_msg = bot
         .send_message(message.chat.id, "Processing...")
         .reply_to_message_id(message.id)
         .send()
         .await?;
-
-    // Check if the message contains a sticker
-    let sticker = match message.sticker() {
-        Some(sticker) => sticker,
-        None => {
-            bot.send_message(message.chat.id, "Please send me a sticker.")
-                .reply_to_message_id(message.id)
-                .send()
-                .await?;
-
-            bot.delete_message(message.chat.id, waiting_msg.id)
-                .send()
-                .await?;
-
-            return Ok(());
-        }
-    };
 
     match dialogue.get_or_default().await {
         Ok(State::SingleExport) => {

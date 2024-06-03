@@ -1,5 +1,7 @@
 use opentelemetry::global;
-use opentelemetry_otlp::{ExportConfig, HttpExporterBuilder, SpanExporterBuilder, TonicExporterBuilder, WithExportConfig};
+use opentelemetry_otlp::{
+    ExportConfig, HttpExporterBuilder, SpanExporterBuilder, TonicExporterBuilder, WithExportConfig,
+};
 use opentelemetry_sdk::propagation::TraceContextPropagator;
 use opentelemetry_sdk::runtime::Tokio;
 use opentelemetry_sdk::trace::Sampler;
@@ -10,11 +12,15 @@ use crate::observability::resource::init_resource;
 
 pub fn init_tracer() {
     let export_config = ExportConfig {
-        endpoint: std::env::var("OTEL_EXPORTER_ENDPOINT").unwrap_or_else(|_| "http://localhost:4317".to_string()),
+        endpoint: std::env::var("OTEL_EXPORTER_ENDPOINT")
+            .unwrap_or_else(|_| "http://localhost:4317".to_string()),
         ..Default::default()
     };
 
-    let exporter = match std::env::var("OTEL_EXPORTER").unwrap_or_else(|_| "otlp_grpc".to_string()).as_str() {
+    let exporter = match std::env::var("OTEL_EXPORTER")
+        .unwrap_or_else(|_| "otlp_grpc".to_string())
+        .as_str()
+    {
         "otlp_http" => SpanExporterBuilder::Http(
             HttpExporterBuilder::default().with_export_config(export_config),
         ),
