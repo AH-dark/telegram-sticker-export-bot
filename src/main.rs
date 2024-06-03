@@ -55,6 +55,7 @@ async fn main() {
                     dptree::case![State::Start]
                         .filter_command::<BasicCommand>()
                         .branch(dptree::case![BasicCommand::Start].endpoint(handle_start))
+                        .branch(dptree::case![BasicCommand::Help].endpoint(handle_help))
                         .branch(
                             dptree::case![BasicCommand::SingleExport]
                                 .endpoint(handle_single_export),
