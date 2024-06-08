@@ -67,20 +67,14 @@ async fn main() {
                 .branch(
                     dptree::case![State::SingleExport]
                         .filter(|message: Message| {
-                            message
-                                .text()
-                                .map(|text| text != "/cancel")
-                                .unwrap_or(false)
+                            message.text().map(|text| text != "/cancel").unwrap_or(true)
                         })
                         .endpoint(handle_export_sticker),
                 )
                 .branch(
                     dptree::case![State::PackExport]
                         .filter(|message: Message| {
-                            message
-                                .text()
-                                .map(|text| text != "/cancel")
-                                .unwrap_or(false)
+                            message.text().map(|text| text != "/cancel").unwrap_or(true)
                         })
                         .endpoint(handle_export_sticker),
                 )
