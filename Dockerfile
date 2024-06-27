@@ -18,5 +18,6 @@ COPY --from=builder /usr/src/sticker-export-bot/target/release/sticker-export-bo
 RUN chmod +x /app/entry
 
 USER root
+VOLUME ["/var/lib/telegram-bot-api"]
 
 ENTRYPOINT ["/app/entry"]
